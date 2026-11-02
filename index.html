@@ -189,6 +189,17 @@ a.btn{text-decoration:none;display:inline-block}
 .d.mine::after{left:auto;right:3px;top:2px;bottom:auto}
 button.ttl{text-align:left;color:inherit;padding:0}
 .roomcard{width:100%;text-align:left;display:flex;gap:10px;align-items:center;margin-bottom:8px}
+
+.tmw{display:flex;flex-direction:column;align-items:flex-end;justify-content:flex-end;line-height:1.15;flex:none}
+.msg:not(.me) .tmw{align-items:flex-start}
+.unr{color:#E0A100;font-weight:700;font-size:11px}
+.cpic{display:block;max-width:220px;max-height:260px;border-radius:16px;border:2px solid var(--line);object-fit:cover;background:#fff}
+.xdel{position:absolute;right:2px;top:2px;background:var(--pink-d);color:#fff;border-radius:50%;width:18px;height:18px;font-size:11px;line-height:18px;text-align:center}
+.pgrid button:disabled{opacity:.35}
+.wheelwrap{position:relative;width:min(300px,80vw);margin:10px auto 4px}
+.wheel{width:100%;aspect-ratio:1;display:block}
+.ptr{position:absolute;left:50%;top:-8px;transform:translateX(-50%);z-index:2;border-left:12px solid transparent;border-right:12px solid transparent;border-top:24px solid var(--ink)}
+.meb{cursor:pointer}
 </style>
 </head>
 <body>
@@ -205,6 +216,7 @@ button.ttl{text-align:left;color:inherit;padding:0}
     <input id="inNick" maxlength="10" placeholder="예: 시니나" autocomplete="off">
     <label class="f">프로필 스티커</label>
     <div id="avGrid" class="avgrid"></div>
+    <div class="row" style="margin-top:6px"><button type="button" class="btn sm ghost" id="btnPhoto">📷 내 사진으로 하기</button><span class="muted" id="photoNote"></span></div>
     <label class="f">내 색깔 <span class="muted" style="font-weight:400">(달력에 내 일정이 이 색으로 표시돼요)</span></label>
     <div id="colGrid" class="colgrid"></div>
     <div id="colMsg" class="colmsg hidden" role="alert"></div>
@@ -230,7 +242,7 @@ button.ttl{text-align:left;color:inherit;padding:0}
 <div id="app" class="hidden">
   <header class="top">
     <button class="ttl" id="topTitle" aria-label="여행방 바꾸기">여행방 ▾</button>
-    <div class="meb"><img class="av" id="meAv" alt=""><span id="meNick"></span></div>
+    <div class="meb" role="button" tabindex="0" aria-label="내 프로필"><img class="av" id="meAv" alt=""><span id="meNick"></span></div>
   </header>
   <main>
     <section class="tab on" id="tab-home"></section>
@@ -247,13 +259,14 @@ button.ttl{text-align:left;color:inherit;padding:0}
   <div id="pickerWrap" class="hidden">
     <div class="ptabs">
       <button class="chip on" data-pt="mj">먼작귀</button>
-      <button class="chip" data-pt="my">우리 스티커</button>
+      <button class="chip" data-pt="my">우리 짤</button>
       <button class="chip" data-pt="em">이모지</button>
     </div>
     <div id="picker"></div>
   </div>
   <form id="chatForm" autocomplete="off">
     <button type="button" class="sq" id="btnPick" aria-label="스티커">😀</button>
+    <button type="button" class="sq" id="btnCamChat" aria-label="사진 보내기">📷</button>
     <input id="chatIn" placeholder="메시지를 입력해요" maxlength="500">
     <button class="btn sm" style="padding:8px 14px;white-space:nowrap;flex:none">전송</button>
   </form>
@@ -271,6 +284,8 @@ button.ttl{text-align:left;color:inherit;padding:0}
 <div id="sheet" class="hidden"><div class="box" id="sheetBody"></div></div>
 <div id="toast"></div>
 <input type="file" id="fileSt" accept="image/*" class="hidden">
+<input type="file" id="fileAv" accept="image/*" class="hidden">
+<input type="file" id="fileChatPic" accept="image/*" class="hidden">
 <input type="file" id="filePh" accept="image/*" multiple class="hidden">
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -320,11 +335,11 @@ function showErr(m){const e=$('#err');e.textContent=m;e.classList.remove('hidden
 let db;
 try{firebase.initializeApp({databaseURL:DB_URL});db=firebase.database()}catch(e){showErr('Firebase를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.')}
 
-const S={code:null,me:null,av:null,meta:{},members:{},avail:{},events:{},plan:{},polls:{},chat:{},links:{},stickers:{},photos:{},expenses:{},pack:{},budget:{},badges:{},reviews:{},settle:{}};
+const S={code:null,me:null,av:null,meta:{},members:{},avail:{},events:{},plan:{},polls:{},chat:{},links:{},stickers:{},photos:{},expenses:{},pack:{},budget:{},badges:{},reviews:{},settle:{},reads:{},roulettes:{},rspin:{}};
 let curTab='home',cal=(()=>{const t=new Date();return{y:t.getFullYear(),m:t.getMonth()}})(),checkMode=false,linkFilter='all',pickTab='mj',lastLoaded=false;
 const R=p=>db.ref(`rooms/${S.code}/${p}`);
 const avSrc=id=>PACKMAP[id]||PACK[0].src;
-const avOf=n=>avSrc((S.members[n]||{}).av);
+const avOf=n=>{const m=S.members[n]||{};return sk(m.photo)||avSrc(m.av)};
 const stickerSrc=m=>m.st?PACKMAP[m.st]:(m.sk&&S.stickers[m.sk]?sk(S.stickers[m.sk].src):'');
 const sorted=(obj,f)=>Object.entries(obj||{}).map(([id,v])=>({id,...v})).sort(f);
 
@@ -349,13 +364,13 @@ function renderRestore(){
   const card=$('#restoreCard'),list=$('#restoreList'),ms=Object.entries(roomMem||{});
   if(!ms.length){card.classList.add('hidden');return}
   card.classList.remove('hidden');
-  list.innerHTML=ms.map(([n,v])=>`<button type="button" class="mem" data-rs="${esc(n)}" style="border:2px solid var(--line);background:#fff;padding:4px 12px 4px 4px"><i class="cd" style="background:${(v&&v.color)||hashCol(n)}"></i><img class="av s" src="${avSrc(v&&v.av)}" alt="">저는 ${esc(n)}${iyo(n)}</button>`).join('');
+  list.innerHTML=ms.map(([n,v])=>`<button type="button" class="mem" data-rs="${esc(n)}" style="border:2px solid var(--line);background:#fff;padding:4px 12px 4px 4px"><i class="cd" style="background:${(v&&v.color)||hashCol(n)}"></i><img class="av s" src="${sk(v&&v.photo)||avSrc(v&&v.av)}" alt="">저는 ${esc(n)}${iyo(n)}</button>`).join('');
 }
 $('#restoreList').onclick=e=>{
   const b=e.target.closest('[data-rs]');if(!b)return;
   const n=b.dataset.rs,v=(roomMem||{})[n]||{};
-  $('#inNick').value=n;if(v.av)pickedAv=v.av;pickedCol=v.color||hashCol(n);
-  $('#heroSt').src=avSrc(pickedAv);$$('#avGrid button').forEach(x=>x.classList.toggle('on',x.dataset.av===pickedAv));
+  $('#inNick').value=n;if(v.av)pickedAv=v.av;pickedPhoto=sk(v.photo)||null;pickedCol=v.color||hashCol(n);
+  $('#heroSt').src=heroSrc();$$('#avGrid button').forEach(x=>x.classList.toggle('on',x.dataset.av===pickedAv));
   recomputeUsed();$('#btnJoin').click();
 };
 async function backupRoom(){
@@ -386,18 +401,19 @@ $('#topTitle').onclick=sheetRooms;
 window.addEventListener('hashchange',()=>{const h=location.hash.replace('#','').toUpperCase();if(h&&S.code&&h!==S.code)location.reload()});
 
 /* ---------- 로그인 ---------- */
-let pickedAv=PACK[Math.floor(Math.random()*PACK.length)].id,pickedCol=PALETTE[Math.floor(Math.random()*PALETTE.length)];
+let pickedAv=PACK[Math.floor(Math.random()*PACK.length)].id,pickedCol=PALETTE[Math.floor(Math.random()*PALETTE.length)],pickedPhoto=null;
+const heroSrc=()=>sk(pickedPhoto)||avSrc(pickedAv);
 function initLogin(){
-  $('#heroSt').src=avSrc(pickedAv);
+  $('#heroSt').src=heroSrc();
   $('#avGrid').innerHTML=PACK.map(p=>`<button type="button" data-av="${p.id}" class="${p.id===pickedAv?'on':''}"><img src="${p.src}" alt=""></button>`).join('');
-  $('#avGrid').onclick=e=>{const b=e.target.closest('button');if(!b)return;pickedAv=b.dataset.av;$$('#avGrid button').forEach(x=>x.classList.toggle('on',x===b));$('#heroSt').src=avSrc(pickedAv)};
+  $('#avGrid').onclick=e=>{const b=e.target.closest('button');if(!b)return;pickedAv=b.dataset.av;pickedPhoto=null;$('#photoNote').textContent='';$$('#avGrid button').forEach(x=>x.classList.toggle('on',x===b));$('#heroSt').src=heroSrc()};
   const saved=JSON.parse(localStorage.getItem('trip.session')||'null');
   if(saved){$('#inNick').value=saved.nick||'';pickedAv=saved.av||pickedAv;pickedCol=saved.col||pickedCol}
   drawCol();
   $('#colGrid').onclick=e=>{const b=e.target.closest('[data-c]');if(!b)return;const c=b.dataset.c;if(loginUsed[c]){colWarn(c,loginUsed[c]);return}pickedCol=c;colWarn();drawCol()};
   $('#inCode').oninput=()=>{clearTimeout(usedT);usedT=setTimeout(fetchRoomMem,350)};$('#inNick').oninput=recomputeUsed;
   const h=location.hash.replace('#','').toUpperCase();if(h)$('#inCode').value=h;
-  $('#avGrid').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.av===pickedAv));$('#heroSt').src=avSrc(pickedAv);
+  $('#avGrid').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.av===pickedAv));$('#heroSt').src=heroSrc();
   fetchRoomMem();
 }
 function needNick(){const n=safeKey($('#inNick').value.trim());if(!n){toast('이름을 입력해 주세요');$('#inNick').focus();return null}return n}
@@ -422,7 +438,7 @@ async function enter(code,nick){
   if(conflict){S.code=null;S.me=null;fetchRoomMem();colWarn(pickedCol,conflict);toast(colMsg(pickedCol,conflict));return}
   saveRoom({code,nick,av:pickedAv,col:pickedCol});
   history.replaceState(null,'','#'+code);
-  await R('members/'+nick).update({av:pickedAv,color:pickedCol,joined:firebase.database.ServerValue.TIMESTAMP});
+  await R('members/'+nick).update(Object.assign({av:pickedAv,color:pickedCol,joined:firebase.database.ServerValue.TIMESTAMP},pickedPhoto?{photo:pickedPhoto}:{}));
   if(window.__sw){location.reload();return}
   startApp();
 }
@@ -435,14 +451,17 @@ function startApp(){
   const sub=(p,key,q)=>(q||R(p)).on('value',s=>{S[key]=s.val()||{};onData(key)},e=>showErr('데이터를 읽지 못했어요: '+e.message));
   sub('meta','meta');sub('members','members');sub('avail','avail');sub('events','events');
   sub('plan','plan');sub('polls','polls');sub('links','links');sub('stickers','stickers');
-  sub('photos','photos');sub('expenses','expenses');sub('pack','pack');sub('budget','budget');sub('badges','badges');sub('reviews','reviews');sub('settle','settle');
+  sub('photos','photos');sub('expenses','expenses');sub('pack','pack');sub('budget','budget');sub('badges','badges');sub('reviews','reviews');sub('settle','settle');sub('reads','reads');sub('roulettes','roulettes');sub('rspin','rspin');
   sub('chat','chat',R('chat').limitToLast(200));
   initSeen();switchTab('home');
 }
 function onData(key){
   if(key==='meta'){$('#topTitle').textContent=(S.meta.title||'여행방')+' ▾';if(S.meta.title)updRoom(S.code,{title:S.meta.title})}
-  if(key==='members'){const m=S.members[S.me];if(m&&m.av){S.av=m.av;$('#meAv').src=avSrc(m.av)}}
-  if(key==='chat'){renderChat();updateBadge();return}
+  if(key==='members'){const m=S.members[S.me];if(m){if(m.av)S.av=m.av;$('#meAv').src=avOf(S.me)}}
+  if(key==='reads'){renderChat();return}
+  if(key==='rspin'){rlRemote();return}
+  if(key==='roulettes'){const sg=JSON.stringify(S.roulettes);if(sg===rlSig)return;const first=rlSig===null;rlSig=sg;if(!first&&curTab==='more'&&moreView==='roulette'&&!rlSpinning)renderMore(true);return}
+  if(key==='chat'){renderChat();updateBadge();notifyNew();return}
   if(key==='stickers'){renderPicker();renderChat();return}
   renderAll();
 }
@@ -478,7 +497,8 @@ function renderHome(){
     <button class="btn sm ghost" id="btnEditTrip">여행 정보 수정</button></div>
     <div class="muted" style="margin-top:8px">친구가 이 사이트에서 코드를 입력하면 같은 여행방에 들어와요.</div>
     <div class="muted" style="margin-top:6px">💾 모든 내용은 서버에 저장돼요. 기기를 바꾸거나 브라우저가 초기화돼도 코드로 들어와 “저는 OO이에요”를 누르면 그대로 돌아와요.</div>
-    <button class="btn sm ghost" id="btnBackup" style="margin-top:8px">📦 방 데이터 백업 파일로 저장</button></div>
+    <div class="row wrap" style="margin-top:8px"><button class="btn sm ghost" id="btnBackup">📦 방 데이터 백업 파일로 저장</button><button class="btn sm ghost" id="btnNotif">${notifOn()?'🔔 알림 켜짐':'🔕 알림 켜기'}</button></div>
+    <div class="muted" style="margin-top:6px">🔔 알림은 사이트를 열어 둔 동안(다른 탭·앱 전환 포함)에만 와요. 폰을 완전히 닫았을 때의 푸시 알림은 서버가 필요해서 지원하지 않아요.</div></div>
   <div class="card"><h3>📊 지금 현황</h3><div class="row wrap">
     <span class="chip">💬 대화 ${Object.keys(S.chat).length}</span>
     <span class="chip">🗳️ 투표 ${Object.keys(S.polls).length}</span>
@@ -492,7 +512,7 @@ function renderHome(){
     <label class="f">목적지</label><input id="eDest" maxlength="30" placeholder="예: 제주도" value="${esc(S.meta.dest||'')}">
     <div class="row" style="margin-top:14px"><button class="btn grow" id="eSave">저장</button><button class="btn ghost" onclick="closeSheet()">취소</button></div>`);
   document.addEventListener('click',function h(e){if(e.target.id==='eSave'){document.removeEventListener('click',h);R('meta').update({title:$('#eTitle').value.trim()||'우리의 여행',dest:$('#eDest').value.trim()});closeSheet()}});
-  $('#btnRooms').onclick=sheetRooms;$('#btnBackup').onclick=backupRoom;
+  $('#btnRooms').onclick=sheetRooms;$('#btnBackup').onclick=backupRoom;$('#btnNotif').onclick=toggleNotif;
   $('#btnLeave').onclick=()=>{if(!confirm('이 방을 내 목록에서 지울까요? (방과 데이터는 그대로 남고, 코드로 다시 들어올 수 있어요)'))return;removeRoom(S.code);history.replaceState(null,'',location.pathname);location.reload()};
   bindHome();
 }
@@ -763,7 +783,8 @@ function updateBadge(){
   ['poll','album','more'].forEach(k=>{if(curTab===k)snSet(k)});
   const c=newCounts(snGet);
   const set=(id,n)=>{const b=$(id);if(!b)return;b.textContent=n>99?'99+':n;b.classList.toggle('hidden',!n)};
-  set('#bdChat',curTab==='chat'?0:chatUnread());set('#bdPoll',c.poll);set('#bdAlbum',c.album);set('#bdMore',c.more);
+  const nc=curTab==='chat'?0:chatUnread();set('#bdChat',nc);set('#bdPoll',c.poll);set('#bdAlbum',c.album);set('#bdMore',c.more);
+  const tot=nc+c.poll+c.album+c.more;document.title=(tot?`(${tot}) `:'')+'같이 가자! 여행 계획';
 }
 function loadImg(f){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>{URL.revokeObjectURL(i.src);res(i)};i.onerror=rej;i.src=URL.createObjectURL(f)})}
 function shrink(img,max,q){const sc=Math.min(1,max/Math.max(img.width,img.height)),cv=document.createElement('canvas');cv.width=Math.max(1,Math.round(img.width*sc));cv.height=Math.max(1,Math.round(img.height*sc));const x=cv.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,cv.width,cv.height);x.drawImage(img,0,0,cv.width,cv.height);return cv.toDataURL('image/jpeg',q)}
@@ -936,27 +957,27 @@ function renderChat(){
     if(day!==lastDay){html+=`<div class="day">${day}</div>`;lastDay=day}
     if(m.sys){html+=`<div class="day">${esc(m.text)}</div>`;return}
     const me=m.nick===S.me,tm=`${pad(dt.getHours())}:${pad(dt.getMinutes())}`,src=stickerSrc(m);
-    const body=(m.st||m.sk)?(src?`<img class="stk" data-mid="${m.id}" src="${src}" alt="스티커">`:'<span class="muted">(삭제된 스티커)</span>'):`<div class="bub" data-mid="${m.id}">${esc(m.text)}</div>`;
-    const rx=reactHtml(m);
-    html+=`<div class="msg ${me?'me':''}">${me?'':`<img class="av" src="${avOf(m.nick)}" alt="">`}<div>${me?'':`<div class="nm">${esc(m.nick)}</div>`}${body}${rx?`<div class="rxs">${rx}</div>`:''}</div><span class="tm">${tm}</span></div>`;
+    const body=(m.st||m.sk)?(src?`<img class="stk" data-mid="${m.id}" src="${src}" alt="스티커">`:'<span class="muted">(삭제된 스티커)</span>'):(m.img&&sk(m.img)?`<img class="cpic" data-mid="${m.id}" src="${sk(m.img)}" alt="사진">`:`<div class="bub" data-mid="${m.id}">${esc(m.text)}</div>`);
+    const rx=reactHtml(m),unr=Object.keys(S.members).filter(n=>n!==m.nick&&((S.reads||{})[n]||0)<m.t).length;
+    html+=`<div class="msg ${me?'me':''}">${me?'':`<img class="av" src="${avOf(m.nick)}" alt="">`}<div>${me?'':`<div class="nm">${esc(m.nick)}</div>`}${body}${rx?`<div class="rxs">${rx}</div>`:''}</div><span class="tmw">${unr?`<span class="unr" title="아직 안 읽은 사람 수">${unr}</span>`:''}<span class="tm">${tm}</span></span></div>`;
   });
   box.innerHTML=html;
   if(curTab==='chat'){if(near||!lastLoaded)scrollChat(true);localStorage.setItem('trip.seen.'+S.code,Date.now())}
-  lastLoaded=true;
+  lastLoaded=true;markRead();
 }
 $('#msgs').onclick=e=>{
   const rx=e.target.closest('[data-rx]');if(rx){const [id,k]=rx.dataset.rx.split('|');toggleReact(id,k);return}
-  const b=e.target.closest('[data-mid]');if(b)sheetReact(b.dataset.mid);
+  const b=e.target.closest('[data-mid]');if(b){if(b.classList.contains('cpic'))sheetPic(b.dataset.mid);else sheetReact(b.dataset.mid)}
 };
 
 /* ---------- 더보기 메뉴 ---------- */
-const MORE=[['link','🔗','링크·후보 비교'],['split','💸','정산'],['pack','🎒','준비물'],['budget','💰','예산'],['roulette','🎲','랜덤 뽑기'],['badge','🏅','칭찬 배지·후기']];
+const MORE=[['link','🔗','링크·후보 비교'],['split','💸','정산'],['pack','🎒','준비물'],['budget','💰','예산'],['roulette','🎡','룰렛'],['badge','🏅','칭찬 배지·후기']];
 function moreSummary(k){
   if(k==='link')return `${Object.keys(S.links).length}개`;
   if(k==='split'){const t=vals(S.expenses).reduce((s,e)=>s+(e.amount||0),0);return t?money(t)+' 사용':'아직 없음'}
   if(k==='pack'){const a=vals(S.pack).filter(i=>i.kind==='shared'||i.owner===S.me);const d=a.filter(i=>i.done).length;return a.length?`${d}/${a.length} 완료`:'아직 없음'}
   if(k==='budget'){const t=vals(S.budget).reduce((s,e)=>s+(e.amount||0),0);return t?money(t):'아직 없음'}
-  if(k==='roulette')return '고민될 땐 뽑기!';
+  if(k==='roulette')return '메뉴·벌칙 돌리기';
   return `배지 ${Object.keys(S.badges).length}개`;
 }
 function renderMore(force){
@@ -1140,66 +1161,258 @@ function sheetReview(){
   $('#rvSave').onclick=()=>{const text=$('#rvT').value.trim();if(!text)return toast('후기를 적어 주세요');R('reviews/'+S.me).set({text,stars,t:Date.now()});closeSheet()};
 }
 
-/* ---------- 랜덤 뽑기 ---------- */
-const RL={menu:['돼지국밥','밀면','회','해물탕','파스타','치킨','분식','카페 디저트'],pen:['노래 한 곡','커피 쏘기','애교 1분','막내 심부름','칭찬 3개 하기','사진 찍어주기']};
-let rlText=RL.menu.join('\n'),rlName='점심 메뉴',rlRes='',rlIv=null;
-const rlHtml=t=>`<div><img class="stk" src="${PACK[Math.floor(Math.random()*PACK.length)].src}" alt=""><div>${esc(t)}</div></div>`;
-function shuffle(a){a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
-function viewRoulette(el){
-  el.innerHTML=`<div class="card"><div class="row wrap"><button class="chip" data-rp="menu">🍜 메뉴</button><button class="chip" data-rp="pen">😈 벌칙</button><button class="chip" data-rp="mem">🙋 멤버</button><button class="chip" data-rp="ord">🔢 순서 정하기</button></div>
-  <textarea id="rlT" rows="6" style="margin-top:8px" placeholder="한 줄에 하나씩 적어요">${esc(rlText)}</textarea></div>
-  <div class="card" style="text-align:center"><div id="rlOut" class="jua" style="font-size:26px;min-height:150px;display:grid;place-items:center">${rlRes?rlHtml(rlRes):'<span class="muted" style="font-size:15px">버튼을 눌러 뽑아 보세요!</span>'}</div>
-  <div class="row" style="justify-content:center;margin-top:8px"><button class="btn" id="rlGo">🎲 뽑기!</button><button class="btn blue" id="rlSh">대화방에 공유</button></div></div>`;
-  const ta=$('#rlT');ta.oninput=()=>{rlText=ta.value;rlName='랜덤 뽑기'};
-  $$('#mBody [data-rp]').forEach(b=>b.onclick=()=>{
-    const k=b.dataset.rp;
-    if(k==='ord'){const o=shuffle(Object.keys(S.members));rlName='순서';rlRes=o.map((n,i)=>`${i+1}. ${n}`).join('\n');$('#rlOut').innerHTML=`<div style="white-space:pre-line;font-size:22px">${esc(rlRes)}</div>`;return}
-    rlText=(k==='menu'?RL.menu:k==='pen'?RL.pen:Object.keys(S.members)).join('\n');rlName={menu:'점심 메뉴',pen:'벌칙',mem:'뽑힌 사람'}[k];ta.value=rlText;
-  });
-  $('#rlGo').onclick=()=>{
-    const items=ta.value.split('\n').map(s=>s.trim()).filter(Boolean);if(items.length<2)return toast('2개 이상 적어 주세요');
-    const out=$('#rlOut'),fin=items[Math.floor(Math.random()*items.length)];
-    const show=()=>{rlRes=fin;out.innerHTML=rlHtml(fin)};
-    clearInterval(rlIv);
-    if(matchMedia('(prefers-reduced-motion: reduce)').matches){show();return}
-    let k=0;rlIv=setInterval(()=>{out.textContent=items[Math.floor(Math.random()*items.length)];if(++k>=14){clearInterval(rlIv);show()}},90);
-  };
-  $('#rlSh').onclick=()=>{if(!rlRes)return toast('먼저 뽑기를 해 주세요');sendChat({text:`🎲 ${rlName}: ${rlRes}`});toast('대화방에 공유했어요')};
-}
-
 /* ---------- 채팅 ---------- */
 function scrollChat(f){requestAnimationFrame(()=>window.scrollTo({top:document.body.scrollHeight,behavior:f?'auto':'smooth'}))}
 function sendChat(o){R('chat').push({nick:S.me,t:Date.now(),...o})}
 $('#chatForm').onsubmit=e=>{e.preventDefault();const t=$('#chatIn').value.trim();if(!t)return;sendChat({text:t});$('#chatIn').value=''};
 $('#btnPick').onclick=()=>{const w=$('#pickerWrap');w.classList.toggle('hidden');if(!w.classList.contains('hidden')){renderPicker();scrollChat()}};
 $$('.ptabs .chip').forEach(b=>b.onclick=()=>{pickTab=b.dataset.pt;$$('.ptabs .chip').forEach(x=>x.classList.toggle('on',x===b));renderPicker()});
+/* ---------- 읽음 표시 (안 읽은 사람 수) ---------- */
+function markRead(){
+  if(curTab!=='chat'||document.visibilityState!=='visible'||!S.me)return;
+  let latest=0;vals(S.chat).forEach(m=>{if(m.t>latest)latest=m.t});
+  if(latest>((S.reads||{})[S.me]||0)){S.reads[S.me]=latest;R('reads/'+S.me).set(latest)}
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.code){markRead();updateBadge()}});
+
+/* ---------- 프로필 사진 · 닉네임 ---------- */
+let avMode='login';
+function squareShrink(img,size,q){
+  const s=Math.min(img.width,img.height),cv=document.createElement('canvas');cv.width=cv.height=size;
+  const x=cv.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,size,size);
+  x.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,size,size);return cv.toDataURL('image/jpeg',q);
+}
+$('#btnPhoto').onclick=()=>{avMode='login';$('#fileAv').click()};
+$('#fileAv').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  try{
+    const img=await loadImg(f),url=squareShrink(img,128,.82);
+    if(avMode==='login'){pickedPhoto=url;$('#heroSt').src=heroSrc();$$('#avGrid button').forEach(x=>x.classList.remove('on'));$('#photoNote').textContent='내 사진을 골랐어요 ✔'}
+    else{await R('members/'+S.me).update({photo:url});toast('프로필 사진을 바꿨어요');setTimeout(sheetProfile,150)}
+  }catch(_){toast('사진을 불러오지 못했어요')}
+};
+$('.meb').onclick=()=>sheetProfile();
+function sheetProfile(){
+  const m=S.members[S.me]||{},hasPhoto=!!sk(m.photo);
+  openSheet(`<h3>👤 내 프로필</h3>
+  <div class="row"><img class="av" style="width:64px;height:64px" src="${avOf(S.me)}" alt=""><div class="grow"><b style="font-size:17px">${esc(S.me)}</b><div class="row" style="margin-top:4px"><i class="cd" style="background:${colorOf(S.me)}"></i><button class="btn sm ghost" id="pfCol">색깔 바꾸기</button></div></div></div>
+  <label class="f">프로필 사진</label>
+  <div class="row wrap"><button class="btn sm yellow" id="pfPhoto">📷 내 사진 올리기</button>${hasPhoto?'<button class="btn sm ghost" id="pfNoPhoto">사진 빼기</button>':''}</div>
+  <div class="muted" style="margin:8px 0 4px">또는 스티커로 바꾸기</div>
+  <div class="avgrid" id="pfGrid">${PACK.map(p=>`<button type="button" data-av="${p.id}" class="${!hasPhoto&&m.av===p.id?'on':''}"><img src="${p.src}" alt=""></button>`).join('')}</div>
+  <label class="f">닉네임 바꾸기</label>
+  <div class="row"><input id="pfNick" maxlength="10" value="${esc(S.me)}"><button class="btn sm" id="pfNickBtn" style="white-space:nowrap">바꾸기</button></div>
+  <div class="muted" style="margin-top:4px">바꾸면 내가 쓴 대화·일정·투표 기록의 이름도 함께 바뀌어요.</div>`);
+  $('#pfCol').onclick=sheetColor;
+  $('#pfPhoto').onclick=()=>{avMode='profile';$('#fileAv').click()};
+  const np=$('#pfNoPhoto');if(np)np.onclick=()=>R('members/'+S.me+'/photo').remove().then(()=>setTimeout(sheetProfile,150));
+  $('#pfGrid').onclick=e=>{const b=e.target.closest('[data-av]');if(!b)return;
+    R('members/'+S.me).update({av:b.dataset.av,photo:null}).then(()=>{S.av=b.dataset.av;updRoom(S.code,{av:b.dataset.av});toast('프로필을 바꿨어요');setTimeout(sheetProfile,150)})};
+  $('#pfNickBtn').onclick=()=>renameNick(S.me,$('#pfNick').value);
+}
+async function renameNick(oldN,raw){
+  const nw=safeKey(String(raw).trim());
+  if(!nw)return toast('새 이름을 입력해 주세요');
+  if(nw===oldN)return toast('지금 이름과 같아요');
+  if(S.members[nw])return toast(`“${nw}”은(는) 이미 이 방에 있는 이름이에요`);
+  if(!confirm(`이름을 “${oldN}” → “${nw}”(으)로 바꿀까요?\n내가 쓴 모든 기록의 이름이 함께 바뀌어요. (몇 초 걸릴 수 있어요)`))return;
+  toast('이름을 바꾸는 중… 잠깐만요');
+  try{
+    const keys=['meta','members','avail','events','plan','polls','links','photos','photoCmt','expenses','pack','budget','badges','reviews','settle','chat','reads','roulettes','rspin','stickers'];
+    const snaps=await Promise.all(keys.map(k=>R(k).get()));
+    const rk=k=>k===oldN?nw:(k.includes('>')?k.split('>').map(x=>x===oldN?nw:x).join('>'):k);
+    const mapV=v=>{if(v===oldN)return nw;if(v&&typeof v==='object'){const o=Array.isArray(v)?[]:{};for(const [k,x] of Object.entries(v))o[rk(k)]=mapV(x);return o}return v};
+    const upd={};
+    const walk=(node,path)=>{for(const [k,v] of Object.entries(node)){
+      const p=path+'/'+k,nk=rk(k);
+      if(nk!==k){upd[p]=null;upd[path+'/'+nk]=mapV(v)}
+      else if(v&&typeof v==='object')walk(v,p);
+      else if(v===oldN)upd[p]=nw}};
+    snaps.forEach((s,i)=>{const v=s.val();if(v&&typeof v==='object')walk(v,keys[i])});
+    if(!Object.keys(upd).length)throw new Error('empty');
+    await db.ref('rooms/'+S.code).update(upd);
+    const rooms=getRooms(),i=rooms.findIndex(r=>r.code===S.code);if(i>=0){rooms[i].nick=nw;localStorage.setItem('trip.rooms',JSON.stringify(rooms))}
+    try{const s=JSON.parse(localStorage.getItem('trip.session')||'null');if(s&&s.code===S.code){s.nick=nw;localStorage.setItem('trip.session',JSON.stringify(s))}}catch(_){}
+    toast('이름을 바꿨어요!');setTimeout(()=>location.reload(),700);
+  }catch(_){toast('이름 바꾸기에 실패했어요. 잠시 뒤 다시 해 주세요')}
+}
+
+/* ---------- 채팅 사진 ---------- */
+$('#btnCamChat').onclick=()=>$('#fileChatPic').click();
+$('#fileChatPic').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;
+  try{
+    const img=await loadImg(f);let url=shrink(img,360,.66);
+    if(url.length>60000)url=shrink(img,280,.55);
+    if(url.length>80000)throw new Error('big');
+    sendChat({img:url});
+  }catch(_){toast('사진을 보내지 못했어요')}
+};
+function sheetPic(id){
+  const m=S.chat[id];if(!m||!sk(m.img))return;
+  openSheet(`<div class="row"><b class="grow jua" style="font-size:17px">${esc(m.nick)}님의 사진</b><button class="x" onclick="closeSheet()" aria-label="닫기">✕</button></div>
+  <img class="big" src="${sk(m.img)}" alt="사진" style="margin-top:8px">
+  <div class="row wrap" style="margin-top:8px"><button class="btn sm yellow" id="pcRe">반응 남기기</button><a class="btn sm ghost" download="chat-${id}.jpg" href="${sk(m.img)}">저장</a></div>`);
+  $('#pcRe').onclick=()=>sheetReact(id);
+}
+
+/* ---------- 스티커 선택창 · 공용 짤 ---------- */
+let stDel=false;
 function renderPicker(){
   const p=$('#picker');if(!p)return;
   if(pickTab==='mj'){p.innerHTML=`<div class="pgrid">${PACK.map(s=>`<button data-st="${s.id}"><img src="${s.src}" alt="스티커"></button>`).join('')}</div>`}
-  else if(pickTab==='my'){const ks=Object.entries(S.stickers).filter(([,v])=>sk(v.src));
-    p.innerHTML=`<button class="btn sm blue" id="btnAddSt" style="margin-bottom:8px">＋ 내 스티커 추가</button><div class="muted" style="margin-bottom:6px">추가하면 우리 방 친구들 모두 쓸 수 있어요.</div><div class="pgrid">${ks.map(([k,v])=>`<button data-sk="${k}"><img src="${v.src}" alt="스티커"></button>`).join('')}</div>`;
-    $('#btnAddSt').onclick=()=>$('#fileSt').click()}
+  else if(pickTab==='my'){
+    const ks=Object.entries(S.stickers).filter(([,v])=>sk(v.src)).sort((a,b)=>(b[1].t||0)-(a[1].t||0));
+    p.innerHTML=`<div class="row wrap" style="margin-bottom:6px"><button class="btn sm blue" id="btnAddSt">＋ 짤·스티커 추가</button><button class="btn sm ${stDel?'yellow':'ghost'}" id="btnDelSt">${stDel?'정리 끝내기':'내가 올린 것 정리'}</button></div>
+    <div class="muted" style="margin-bottom:6px">웃긴 짤, 밈, 단체사진 뭐든 올려요. 방 친구들 모두 쓸 수 있어요. (GIF 가능, 작은 파일 권장)</div>
+    ${ks.length?`<div class="pgrid">${ks.map(([k,v])=>`<button data-sk="${k}" ${stDel&&v.nick!==S.me?'disabled':''} style="position:relative"><img src="${v.src}" alt="짤">${stDel&&v.nick===S.me?'<span class="xdel">✕</span>':''}</button>`).join('')}</div>`:'<div class="muted">아직 없어요. 첫 짤을 올려 보세요!</div>'}`;
+    $('#btnAddSt').onclick=()=>$('#fileSt').click();
+    $('#btnDelSt').onclick=()=>{stDel=!stDel;renderPicker()};
+  }
   else p.innerHTML=`<div class="pgrid em">${EMOJI.map(e=>`<button data-em="${e}">${e}</button>`).join('')}</div>`;
 }
 $('#picker').onclick=e=>{const b=e.target.closest('button');if(!b)return;
   if(b.dataset.st){sendChat({st:b.dataset.st});$('#pickerWrap').classList.add('hidden')}
-  else if(b.dataset.sk){sendChat({sk:b.dataset.sk});$('#pickerWrap').classList.add('hidden')}
+  else if(b.dataset.sk){const k=b.dataset.sk;
+    if(stDel){const v=S.stickers[k];if(v&&v.nick===S.me&&confirm('이 짤을 지울까요? 이미 보낸 메시지에서도 사라져요.'))R('stickers/'+k).remove();return}
+    sendChat({sk:k});$('#pickerWrap').classList.add('hidden')}
   else if(b.dataset.em){const i=$('#chatIn');i.value+=b.dataset.em;i.focus()}};
 $('#fileSt').onchange=async e=>{
   const f=e.target.files[0];e.target.value='';if(!f)return;
   try{
     let src;
-    if(f.type==='image/gif'&&f.size<90000)src=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f)});
+    if(f.type==='image/gif'&&f.size<260000)src=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f)});
     else{
-      const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(f)});
-      const sc=Math.min(1,160/Math.max(img.width,img.height)),cv=document.createElement('canvas');cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
+      const img=await loadImg(f);
+      const sc=Math.min(1,320/Math.max(img.width,img.height)),cv=document.createElement('canvas');cv.width=Math.round(img.width*sc);cv.height=Math.round(img.height*sc);
       cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);src=cv.toDataURL('image/webp',.8);
       if(!src.startsWith('data:image/webp'))src=cv.toDataURL('image/jpeg',.8);
     }
-    if(src.length>120000)return toast('이미지가 너무 커요. 더 작은 이미지를 골라 주세요');
-    R('stickers').push({src,nick:S.me,t:Date.now()});toast('스티커를 추가했어요');
+    if(src.length>420000)return toast('이미지가 너무 커요. 더 작은 이미지(GIF는 260KB 이하)를 골라 주세요');
+    R('stickers').push({src,nick:S.me,t:Date.now()});toast('우리 짤에 추가했어요');
   }catch(_){toast('이미지를 불러오지 못했어요')}
 };
+
+/* ---------- 알림 (사이트가 열려 있는 동안) ---------- */
+let notifT=null;
+const notifOn=()=>localStorage.getItem('trip.notif')==='1'&&('Notification' in window)&&Notification.permission==='granted';
+function notifyNew(){
+  const ms=vals(S.chat),latest=Math.max(0,...ms.map(m=>m.t||0));
+  if(notifT===null){notifT=latest;return}
+  const fresh=ms.filter(m=>m.t>notifT&&m.nick!==S.me&&!m.sys).sort((a,b)=>a.t-b.t);
+  notifT=Math.max(notifT,latest);
+  if(!fresh.length||!document.hidden||!notifOn())return;
+  fresh.slice(-2).forEach(m=>{try{new Notification(`${S.meta.title||'여행방'} · ${m.nick}`,{body:m.text||(m.img?'📷 사진을 보냈어요':'스티커를 보냈어요'),tag:'trip-'+S.code})}catch(_){}});
+}
+async function toggleNotif(){
+  if(!('Notification' in window))return toast('이 브라우저는 알림을 지원하지 않아요');
+  if(localStorage.getItem('trip.notif')==='1'){localStorage.setItem('trip.notif','0');toast('알림을 껐어요');renderHome();return}
+  let perm=Notification.permission;if(perm==='default')perm=await Notification.requestPermission();
+  if(perm!=='granted')return toast('브라우저 설정에서 알림을 허용해 주세요');
+  localStorage.setItem('trip.notif','1');toast('알림을 켰어요 (사이트를 열어 둔 동안 알려줘요)');renderHome();
+}
+
+/* ---------- 룰렛 ---------- */
+const WHEEL_COLORS=['#FFC8D6','#BEDDF0','#FFE9A8','#CFE8C0','#F6B27A','#D8C9F0','#FFD6A5','#B8E6E0'];
+const RL_DEFAULT={menu:{name:'🍜 메뉴',items:['돼지국밥','밀면','회','해물탕','파스타','치킨','분식','카페 디저트']},pen:{name:'😈 벌칙',items:['노래 한 곡','커피 쏘기','애교 1분','막내 심부름','칭찬 3개 하기','사진 찍어주기']}};
+let rlSig=null,rlSel='menu',rlAngle=0,rlSpinning=false,rlInit=false,rlSeen=0;
+function rlLists(){
+  const out={};
+  Object.entries(RL_DEFAULT).forEach(([id,d])=>out[id]={id,name:d.name,items:[...d.items],def:true});
+  Object.entries(S.roulettes||{}).forEach(([id,v])=>{if(!v)return;out[id]={id,name:v.name||'룰렛',items:Object.values(v.items||{}).filter(x=>typeof x==='string'&&x.trim()),def:!!RL_DEFAULT[id]}});
+  return out;
+}
+const rlResultHtml=t=>`<div><img class="stk" src="${PACK[Math.floor(Math.random()*PACK.length)].src}" alt=""><div class="jua" style="font-size:26px">${esc(t)}</div></div>`;
+function drawWheel(cv,items,angle){
+  if(!cv)return;
+  const dpr=window.devicePixelRatio||1,size=cv.clientWidth||300;
+  cv.width=Math.round(size*dpr);cv.height=Math.round(size*dpr);
+  const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,size,size);
+  const c=size/2,r=c-6,n=items.length;
+  if(!n){x.fillStyle='#EFE3D2';x.beginPath();x.arc(c,c,r,0,Math.PI*2);x.fill();return}
+  const seg=Math.PI*2/n;
+  for(let i=0;i<n;i++){
+    const a=angle+i*seg-Math.PI/2;
+    x.beginPath();x.moveTo(c,c);x.arc(c,c,r,a,a+seg);x.closePath();
+    x.fillStyle=WHEEL_COLORS[i%WHEEL_COLORS.length];x.fill();x.lineWidth=2;x.strokeStyle='#fff';x.stroke();
+    x.save();x.translate(c,c);x.rotate(a+seg/2);x.textAlign='right';x.textBaseline='middle';x.fillStyle='#4A3B36';
+    x.font=`700 ${n>10?12:14}px 'Jua','Noto Sans KR',sans-serif`;
+    const lim=n>10?7:10,t=items[i].length>lim?items[i].slice(0,lim-1)+'…':items[i];
+    x.fillText(t,r-12,0);x.restore();
+  }
+  x.beginPath();x.arc(c,c,r,0,Math.PI*2);x.lineWidth=4;x.strokeStyle='#4A3B36';x.stroke();
+  x.beginPath();x.arc(c,c,14,0,Math.PI*2);x.fillStyle='#fff';x.fill();x.lineWidth=3;x.stroke();
+}
+function rlFinish(items,idx,name,byMe){
+  rlSpinning=false;
+  const out=$('#rlOut');if(out)out.innerHTML=rlResultHtml(items[idx]);
+  const b=$('#rlGo');if(b)b.disabled=false;
+  if(byMe)R('chat').push({nick:'🔔',t:Date.now(),text:`🎡 ${S.me}님이 “${name}” 룰렛을 돌렸어요 → ${items[idx]}!`,sys:1});
+}
+function spinWheel(items,idx,name,byMe){
+  const cv=$('#wheel');if(!cv)return;
+  rlSpinning=true;const b=$('#rlGo');if(b)b.disabled=true;
+  $('#rlOut').innerHTML='<span class="muted" style="font-size:15px">두근두근…</span>';
+  const TAU=Math.PI*2,seg=TAU/items.length,jit=(Math.random()-.5)*seg*.6;
+  const target=-(idx+.5)*seg+jit,a0=rlAngle,a1=a0+TAU*5+(((target-a0)%TAU)+TAU)%TAU;
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches){rlAngle=a1%TAU;drawWheel(cv,items,rlAngle);rlFinish(items,idx,name,byMe);return}
+  const t0=performance.now(),D=4200;
+  const step=now=>{
+    const k=Math.min(1,(now-t0)/D),e=1-Math.pow(1-k,3);
+    rlAngle=a0+(a1-a0)*e;if($('#wheel')===cv)drawWheel(cv,items,rlAngle);
+    if(k<1)requestAnimationFrame(step);else{rlAngle=a1%TAU;rlFinish(items,idx,name,byMe)}
+  };
+  requestAnimationFrame(step);
+}
+function rlRemote(){
+  const sp=S.rspin||{};
+  if(!rlInit){rlInit=true;rlSeen=sp.t||0;return}
+  if(!sp.t||sp.t===rlSeen)return;rlSeen=sp.t;
+  if(sp.by===S.me||rlSpinning)return;
+  if(!(curTab==='more'&&moreView==='roulette'&&$('#wheel')))return;
+  const items=Object.values(sp.items||{});if(items.length<2)return;
+  if(rlLists()[sp.id])rlSel=sp.id;
+  drawWheel($('#wheel'),items,rlAngle);spinWheel(items,sp.idx,sp.name||'룰렛',false);
+}
+function viewRoulette(el){
+  const lists=rlLists();if(!lists[rlSel])rlSel='menu';
+  const L=lists[rlSel];
+  el.innerHTML=`<div class="row wrap">${Object.values(lists).map(l=>`<button class="chip ${l.id===rlSel?'on':''}" data-rl="${esc(l.id)}">${esc(l.name)}</button>`).join('')}<button class="chip" id="rlNew">＋ 새 룰렛</button></div>
+  <div class="card" style="margin-top:10px;text-align:center">
+    <div class="wheelwrap"><div class="ptr"></div><canvas id="wheel" class="wheel" role="img" aria-label="룰렛"></canvas></div>
+    <div id="rlOut" style="min-height:150px;display:grid;place-items:center"><span class="muted" style="font-size:15px">${L.items.length<2?'항목을 2개 이상 넣어 주세요':'돌려라 돌려! 모두에게 같이 보여요 🎡'}</span></div>
+    <div class="row" style="justify-content:center;margin-top:8px"><button class="btn" id="rlGo" ${L.items.length<2?'disabled':''}>🎡 돌려라!</button><button class="btn ghost" id="rlEdit">✏️ 항목 수정</button></div>
+    <div class="muted" style="margin-top:8px">결과는 대화방에도 자동으로 알려줘요. 항목은 친구들 모두에게 공유돼요.</div></div>`;
+  drawWheel($('#wheel'),L.items,rlAngle);
+  $$('#mBody [data-rl]').forEach(b=>b.onclick=()=>{if(rlSpinning)return;rlSel=b.dataset.rl;rlAngle=0;viewRoulette(el)});
+  $('#rlNew').onclick=()=>sheetRlEdit(null);
+  $('#rlEdit').onclick=()=>sheetRlEdit(rlSel);
+  $('#rlGo').onclick=()=>{
+    if(rlSpinning||L.items.length<2)return;
+    const idx=Math.floor(Math.random()*L.items.length),t=Date.now(),o={};L.items.forEach((x,i)=>o[i]=x);
+    rlSeen=t;R('rspin').set({id:rlSel,name:L.name,items:o,idx,by:S.me,t});
+    spinWheel(L.items,idx,L.name,true);
+  };
+}
+function sheetRlEdit(id){
+  const L=id?rlLists()[id]:null,custom=!!(S.roulettes&&id&&S.roulettes[id]);
+  openSheet(`<h3>${L?'✏️ 룰렛 수정':'＋ 새 룰렛'}</h3>
+  <label class="f">룰렛 이름</label><input id="reN" maxlength="14" value="${esc(L?L.name:'')}" placeholder="예: 🍢 간식 룰렛">
+  <label class="f">항목 <span class="muted" style="font-weight:400">(한 줄에 하나씩, 2~16개 · 같은 항목을 여러 번 쓰면 더 잘 뽑혀요)</span></label>
+  <textarea id="reI" rows="8" placeholder="한 줄에 하나씩 적어요">${esc(L?L.items.join('\n'):'')}</textarea>
+  <div class="row wrap" style="margin-top:6px"><button type="button" class="chip" id="reMem">🙋 친구 이름 채우기</button>${L&&L.def&&custom?'<button type="button" class="chip" id="reReset">기본값으로 되돌리기</button>':''}</div>
+  <div class="row" style="margin-top:14px"><button class="btn grow" id="reS">저장</button>${L&&!L.def?'<button class="btn ghost" id="reD">삭제</button>':''}<button class="btn ghost" onclick="closeSheet()">취소</button></div>`);
+  $('#reMem').onclick=()=>{$('#reI').value=Object.keys(S.members).join('\n')};
+  const rr=$('#reReset');if(rr)rr.onclick=()=>{if(confirm('기본 항목으로 되돌릴까요?')){R('roulettes/'+id).remove();closeSheet()}};
+  const rd=$('#reD');if(rd)rd.onclick=()=>{if(confirm('이 룰렛을 지울까요?')){R('roulettes/'+id).remove();rlSel='menu';closeSheet()}};
+  $('#reS').onclick=()=>{
+    const name=$('#reN').value.trim()||'룰렛',items=$('#reI').value.split('\n').map(s=>s.trim().slice(0,20)).filter(Boolean);
+    if(items.length<2)return toast('항목을 2개 이상 적어 주세요');if(items.length>16)return toast('항목은 16개까지예요');
+    const rid=id||R('roulettes').push().key,o={};items.forEach((x,i)=>o[i]=x);
+    R('roulettes/'+rid).set({name,items:o,nick:S.me,t:Date.now()});rlSel=rid;rlAngle=0;closeSheet();toast('저장했어요');
+  };
+}
+
 
 /* ---------- 부팅 ---------- */
 (function boot(){
